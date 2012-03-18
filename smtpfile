@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+
+# most code from http://docs.python.org/library/email-examples.html, but ported to work on python 2.6.
+# Original script Copyright 2001-2010 Python Software Foundation; All Rights Reserved
+# Modifications Copyright 2011 Eric Stein
+# Modded to simply send one file by Eric Stein http://cons.truct.org
+# Licensed GPL2
+
+import smtplib
+import mimetypes
+import os
+import re
+import sys
+import dns.resolver
+
+from email import encoders
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.message import Message
+
+em_matcher = re.compile('^(.*)@(.*)$')
+
+em_attach = sys.argv[1]
+em_from = sys.argv[2]
+em_to = sys.argv[3]
+smtp_server = sys.argv[4]
+if smtp_server == 'autoselect' :
+	try :
+		for x in dns.resolver.query(to_domain, 'MX') :
+			smtp_server = x.to_text().split(' ')[1]
+	except :
+		print 'failed to look up the mx... [x]'
+		sys.exit(1)
+
+if not em_matcher.match(em_from) :
+	raise RuntimeError("bad email from address")
+
+matched = em_matcher.match(em_to)
+if not matched :
+	raise RuntimeError("bad email to address")
+
+trash, to_domain = matched.groups()
+
+outer = MIMEMultipart()
+outer['To'] = em_to
+outer['From'] = em_from
+outer.preamble = 'MIME file attached..\n'
+
+if not os.path.isfile(em_attach) :
+	raise RuntimeError("%s is not a file" % em_attach)
+
+ctype, encoding = mimetypes.guess_type(em_attach)
+if ctype is None or encoding is not None:
+	# No guess could be made, or the file is encoded (compressed), so
+	# use a generic bag-of-bits type.
+	ctype = 'application/octet-stream'
+maintype, subtype = ctype.split('/', 1)
+fp = open(em_attach, 'rb')
+msg = MIMEBase(maintype, subtype)
+msg.set_payload(fp.read())
+fp.close()
+encoders.encode_base64(msg)
+
+msg.add_header('Content-Disposition', 'attachment', filename=em_attach)
+outer.attach(msg)
+
+composed = outer.as_string()
+
+s = smtplib.SMTP()
+s.connect(smtp_server)
+s.sendmail(em_from, em_to, composed)
+s.quit()
